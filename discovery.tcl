@@ -13,7 +13,7 @@ proc pcap_header_info {pcap_header} {
     dict set info timestamp $timestamp
     dict set info caplen $caplen
     dict set info len $len
-    return info
+    return $info
 }
 
 proc ether_header_info {packet} {
@@ -22,12 +22,24 @@ proc ether_header_info {packet} {
     dict set ether src $src
     dict set ether dest $dest
     dict set ether len $len
-    return ether
+    return $ether
 }
 
 proc ip_header_info {packet} {
     binary scan $packet b4b4cuSub3b11cucuSuIuIu version len tos id flags fragment_off ttl protocol checksum src dest
     puts "ip ver $version header len $len tos $tos id $id flags $flags fragment offset $fragment_off ttl $ttl protocol $protocol checksum $checksum src $src dest $dest"
+    dict set ip version $version
+    dict set ip len $len
+    dict set ip tos $tos
+    dict set ip id $id
+    dict set ip flags $flags
+    dict set ip fragment_offset $fragment_off
+    dict set ip ttl $ttl
+    dict set ip protocol $protocol
+    dict set ip checksum $checksum
+    dict set ip src $src
+    dict set ip dest $dest
+    return $ip
 }
 
 proc tcp_header_info {tcp_packet} {
@@ -117,12 +129,16 @@ while {![eof $pcapChannel]} {
 
     set ip_info [ip_header_info [string range [lindex $packet 1] 14 34]]
 
-    set tcp_packet [string range [lindex $packet 1] 34 end]
-    set tcp_info [tcp_header_info $tcp_packet]
-    puts "packet: header src [dict get $tcp_info source_port] dest [dict get $tcp_info dest_port] seq #[dict get $tcp_info seq_num] ack #[dict get $tcp_info ack_num] len 0x[dict get $tcp_info data_offset] words ([expr {[dict get $tcp_info data_offset] * 4}] bytes) options [dict get $tcp_info options] ([dict get $tcp_info option_line]) window size [dict get $tcp_info window_size] checksum [dict get $tcp_info checksum] urgent ptr [dict get $tcp_info urgent_ptr]\n"
+    if {[dict get $ip_info protocol] == "6"} {
+        set tcp_packet [string range [lindex $packet 1] 34 end]
+        set tcp_info [tcp_header_info $tcp_packet]
+        puts "tcp packet: header src [dict get $tcp_info source_port] dest [dict get $tcp_info dest_port] seq #[dict get $tcp_info seq_num] ack #[dict get $tcp_info ack_num] len 0x[dict get $tcp_info data_offset] words ([expr {[dict get $tcp_info data_offset] * 4}] bytes) options [dict get $tcp_info options] ([dict get $tcp_info option_line]) window size [dict get $tcp_info window_size] checksum [dict get $tcp_info checksum] urgent ptr [dict get $tcp_info urgent_ptr]\n"
 
-    set tcp_data [string range $tcp_packet [expr {"0x[dict get $tcp_info data_offset]" * 4}] end]
-    puts "tcp data: $tcp_data"
+        set tcp_data [string range $tcp_packet [expr {"0x[dict get $tcp_info data_offset]" * 4}] end]
+        puts "tcp data: $tcp_data"
+    } else {
+        puts "protocol not supported.  was [dict get $ip_info protocol], expected 6 (TCP)."
+    }
 }
 
 #
