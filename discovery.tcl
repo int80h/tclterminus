@@ -17,13 +17,11 @@ proc pcap_header_info {pcap_header} {
 }
 
 proc ether_header_info {packet} {
-    puts "ether: packet is $packet"
-    binary scan $packet b64h12h12Su preamble src dest len
-    puts "ether packet: preamble $preamble src $src dest $dest len $len"
+    binary scan $packet H12H12Su src dest len
+    puts "ether packet: src mac: $src dest mac: $dest len $len"
     dict set ether src $src
     dict set ether dest $dest
     dict set ether len $len
-    dict set ether preamble $preamble
     return ether
 }
 
@@ -113,7 +111,7 @@ while {![eof $pcapChannel]} {
 
     #set pcap_data [lindex $packet 1]
     incr i 1
-    puts "full data:[lindex $packet 1]"
+    #puts "full data:[lindex $packet 1]"
     set ether_header [string range [lindex $packet 1] 0 14]
     set ether_info [ether_header_info [lindex $packet 1]]
 
@@ -124,6 +122,7 @@ while {![eof $pcapChannel]} {
     puts "packet: header src [dict get $tcp_info source_port] dest [dict get $tcp_info dest_port] seq #[dict get $tcp_info seq_num] ack #[dict get $tcp_info ack_num] len 0x[dict get $tcp_info data_offset] words ([expr {[dict get $tcp_info data_offset] * 4}] bytes) options [dict get $tcp_info options] ([dict get $tcp_info option_line]) window size [dict get $tcp_info window_size] checksum [dict get $tcp_info checksum] urgent ptr [dict get $tcp_info urgent_ptr]\n"
 
     set tcp_data [string range $tcp_packet [expr {"0x[dict get $tcp_info data_offset]" * 4}] end]
+    puts "tcp data: $tcp_data"
 }
 
 #
