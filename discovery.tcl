@@ -16,6 +16,22 @@ proc pcap_header_info {pcap_header} {
     return info
 }
 
+proc ether_header_info {packet} {
+    puts "ether: packet is $packet"
+    binary scan $packet b64h12h12Su preamble src dest len
+    puts "ether packet: preamble $preamble src $src dest $dest len $len"
+    dict set ether src $src
+    dict set ether dest $dest
+    dict set ether len $len
+    dict set ether preamble $preamble
+    return ether
+}
+
+proc ip_header_info {packet} {
+    binary scan $packet b4b4cuSub3b11cucuSuIuIu version len tos id flags fragment_off ttl protocol checksum src dest
+    puts "ip ver $version header len $len tos $tos id $id flags $flags fragment offset $fragment_off ttl $ttl protocol $protocol checksum $checksum src $src dest $dest"
+}
+
 proc tcp_header_info {tcp_packet} {
     binary scan $tcp_packet SuSuIuIuh2b8IuIuIu source_port dest_port seq_num ack_num data_offset tcp_options window_size checksum urgent_ptr
 
@@ -97,6 +113,11 @@ while {![eof $pcapChannel]} {
 
     #set pcap_data [lindex $packet 1]
     incr i 1
+    puts "full data:[lindex $packet 1]"
+    set ether_header [string range [lindex $packet 1] 0 14]
+    set ether_info [ether_header_info [lindex $packet 1]]
+
+    set ip_info [ip_header_info [string range [lindex $packet 1] 14 34]]
 
     set tcp_packet [string range [lindex $packet 1] 34 end]
     set tcp_info [tcp_header_info $tcp_packet]
