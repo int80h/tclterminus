@@ -30,69 +30,6 @@ proc ether_header_info {packet} {
     return $ether
 }
 
-proc pretty_mac {addr} {
-    set pair1 [string range $addr 0 1]
-    set pair2 [string range $addr 2 3]
-    set pair3 [string range $addr 4 5]
-    set pair4 [string range $addr 6 7]
-    set pair5 [string range $addr 8 9]
-    set pair6 [string range $addr 10 11]
-    lappend pairs $pair1 $pair2 $pair3 $pair4 $pair5 $pair6
-    set pretty [join $pairs ":"]
-    return $pretty
-}
-
-proc pretty_ip {addr} {
-    foreach octet $addr {
-        lappend dec_octets [expr { $octet & 0xff}]
-    }
-    set pretty [join $dec_octets "."]
-    #puts "orig: $addr pretty: $pretty"
-    return $pretty
-}
-
-proc convert_bit_string {str} {
-    # takes big-endian bit string
-    set len [string length $str]
-    set val 0
-    for {set i 0} {$i < 8} {incr i} {
-        set c [string index $str $i]
-        set pownum [expr $len - 1 - $i]
-        set power [expr round(pow(2,$pownum))]
-        set val [expr $val + [expr "$c" * "$power"]]
-    }
-    return $val
-}
-
-proc ip_header_info {packet} {
-    puts "packet length is [string length $packet]"
-    #binary scan $packet ccSuSuB3B11ccSuc4c4 vhl tos total_len id flags fragment_off ttl protocol checksum src dest
-    binary scan $packet B8c vhl tos
-    #puts "vhl1 $vhl1"
-    set version "0000"
-    append version [string range $vhl 0 3]
-    set version [convert_bit_string $version]
-    set header_len "0000"
-    append header_len [string range $vhl 4 7]
-    set header_len [convert_bit_string $header_len]
-    dict set ip version $version
-    dict set ip header_len $header_len
-    dict set ip tos $tos
-    #dict set ip total_len $total_len
-    #dict set ip id $id
-    #dict set ip flags $flags
-    #dict set ip fragment_offset $fragment_off
-    #dict set ip ttl $ttl
-    #dict set ip protocol $protocol
-    dict set ip protocol "6"
-    #dict set ip checksum $checksum
-    #dict set ip src $src
-    #dict set ip pretty_src [pretty_ip $src]
-    #dict set ip dest $dest
-    #dict set ip pretty_dest [pretty_ip $dest]
-    return $ip
-}
-
 proc tcp_header_info {tcp_packet} {
     puts "packet: $tcp_packet\nlength: [string length $tcp_packet]"
     binary scan $tcp_packet SuSuIuIuh2b8IuIuIu source_port dest_port seq_num ack_num data_offset tcp_options window_size checksum urgent_ptr
@@ -149,6 +86,69 @@ proc tcp_header_info {tcp_packet} {
     return $tcp
 }
 
+proc pretty_mac {addr} {
+    set pair1 [string range $addr 0 1]
+    set pair2 [string range $addr 2 3]
+    set pair3 [string range $addr 4 5]
+    set pair4 [string range $addr 6 7]
+    set pair5 [string range $addr 8 9]
+    set pair6 [string range $addr 10 11]
+    lappend pairs $pair1 $pair2 $pair3 $pair4 $pair5 $pair6
+    set pretty [join $pairs ":"]
+    return $pretty
+}
+
+proc pretty_ip {addr} {
+    foreach octet $addr {
+        lappend dec_octets [expr { $octet & 0xff}]
+    }
+    set pretty [join $dec_octets "."]
+    #puts "orig: $addr pretty: $pretty"
+    return $pretty
+}
+
+proc convert_bit_string {str} {
+    # takes big-endian bit string
+    set len [string length $str]
+    set val 0
+    for {set i 0} {$i < 8} {incr i} {
+        set c [string index $str $i]
+        set pownum [expr $len - 1 - $i]
+        set power [expr round(pow(2,$pownum))]
+        set val [expr $val + [expr "$c" * "$power"]]
+    }
+    return $val
+}
+
+proc ip_header_info {packet} {
+    puts "packet length is [string length $packet]"
+    #binary scan $packet ccSuSuB3B11ccSuc4c4 vhl tos total_len id flags fragment_off ttl protocol checksum src dest
+    binary scan $packet B8cSuSuB16ccSuc4c4 vhl tos total_len id flags_off ttl protocol checksum src dest
+    set version "0000"
+    append version [string range $vhl 0 3]
+    set version [convert_bit_string $version]
+    set header_len "0000"
+    append header_len [string range $vhl 4 7]
+    set header_len [convert_bit_string $header_len]
+    #TODO: separate flags out from fragment offset, both in B16 -> flags_off.
+    dict set ip version $version
+    dict set ip header_len $header_len
+    dict set ip tos $tos
+    dict set ip total_len $total_len
+    dict set ip id $id
+    #dict set ip flags $flags
+    #dict set ip fragment_offset $fragment_off
+    dict set ip ttl $ttl
+    dict set ip protocol $protocol
+    #dict set ip protocol "6"
+    dict set ip checksum $checksum
+    #dict set ip src $src
+    dict set ip pretty_src [pretty_ip $src]
+    #dict set ip dest $dest
+    dict set ip pretty_dest [pretty_ip $dest]
+    return $ip
+}
+
 set device [pcap::lookupdev]
 puts $device
 
@@ -183,15 +183,16 @@ while {![eof $pcapChannel]} {
 
     if {[dict get $ip_info protocol] == "6"} {
         set tcp_packet [string range [lindex $packet 1] 34 end]
-        #set tcp_info [tcp_header_info $tcp_packet]
+        set tcp_info [tcp_header_info $tcp_packet]
 
-        #set tcp_data [string range $tcp_packet [expr {"0x[dict get $tcp_info data_offset]" * 4}] end]
-        #puts "src mac=[dict get $ether_info pretty_src] ip addr=[dict get $ip_info pretty_src] tcp port=[dict get $tcp_info source_port]"
-        #puts "dest mac=[dict get $ether_info pretty_dest] ip addr=[dict get $ip_info pretty_dest] tcp port=[dict get $tcp_info dest_port]"
+        set tcp_data [string range $tcp_packet [expr {"0x[dict get $tcp_info data_offset]" * 4}] end]
+        puts "src mac=[dict get $ether_info pretty_src] ip addr=[dict get $ip_info pretty_src] tcp port=[dict get $tcp_info source_port]"
+        puts "dest mac=[dict get $ether_info pretty_dest] ip addr=[dict get $ip_info pretty_dest] tcp port=[dict get $tcp_info dest_port]"
         #puts "packet length [string length $packet] header lengths: ether=[dict get $ether_info len]"
-        puts "ip header len=[dict get $ip_info header_len]"; # total=[dict get $ip_info total_len] bytes"
+        puts "ip header len=[dict get $ip_info header_len] total=[dict get $ip_info total_len] bytes"
         #puts "tcp len 0x[dict get $tcp_info data_offset] words ([expr {[dict get $tcp_info data_offset] * 4}] bytes)"
-        puts "ip header: ver [dict get $ip_info version] tos [dict get $ip_info tos]"; # id [dict get $ip_info id] flags [dict get $ip_info flags] fragment offset [dict get $ip_info fragment_offset] ttl [dict get $ip_info ttl] proto [dict get $ip_info protocol] checksum [dict get $ip_info checksum]"
+        puts "ip header: ver [dict get $ip_info version] tos [dict get $ip_info tos] id [dict get $ip_info id]"; # flags [dict get $ip_info flags] fragment offset [dict get $ip_info fragment_offset]"
+        puts "ttl [dict get $ip_info ttl] proto [dict get $ip_info protocol] checksum [dict get $ip_info checksum]"
         #puts "tcp header: seq #[dict get $tcp_info seq_num] ack #[dict get $tcp_info ack_num]  options [dict get $tcp_info options] ([dict get $tcp_info option_line]) window size [dict get $tcp_info window_size] checksum [dict get $tcp_info checksum] urgent ptr [dict get $tcp_info urgent_ptr]\n"
         #puts "tcp data: $tcp_data"
     } else {
