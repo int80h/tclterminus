@@ -19,13 +19,38 @@ proc pcap_header_info {pcap_header} {
 proc ether_header_info {packet} {
     binary scan $packet H12H12Su src dest len
     dict set ether src $src
+    dict set ether pretty_src [pretty_mac $src]
+    #puts "pretty mac src is [dict get $ether pretty_src]"
     dict set ether dest $dest
+    dict set ether pretty_dest [pretty_mac $dest]
+    #puts "pretty mac dest is [dict get $ether pretty_dest]"
     dict set ether len $len
     return $ether
 }
 
+proc pretty_mac {addr} {
+    set pair1 [string range $addr 0 1]
+    set pair2 [string range $addr 2 3]
+    set pair3 [string range $addr 4 5]
+    set pair4 [string range $addr 6 7]
+    set pair5 [string range $addr 8 9]
+    set pair6 [string range $addr 10 11]
+    lappend pairs $pair1 $pair2 $pair3 $pair4 $pair5 $pair6
+    set pretty [join $pairs ":"]
+    return $pretty
+}
+
+proc pretty_ip {addr} {
+    foreach octet $addr {
+        lappend dec_octets [expr { $octet & 0xff}]
+    }
+    set pretty [join $dec_octets "."]
+    #puts "orig: $addr pretty: $pretty"
+    return $pretty
+}
+
 proc ip_header_info {packet} {
-    binary scan $packet b4b4cuSub3b11cucuSuIuIu version len tos id flags fragment_off ttl protocol checksum src dest
+    binary scan $packet B4B4cSuB3B11ccSuc4c4 version len tos id flags fragment_off ttl protocol checksum src dest
     dict set ip version $version
     dict set ip len $len
     dict set ip tos $tos
@@ -36,11 +61,14 @@ proc ip_header_info {packet} {
     dict set ip protocol $protocol
     dict set ip checksum $checksum
     dict set ip src $src
+    dict set ip pretty_src [pretty_ip $src]
     dict set ip dest $dest
+    dict set ip pretty_dest [pretty_ip $dest]
     return $ip
 }
 
 proc tcp_header_info {tcp_packet} {
+    puts "packet: $tcp_packet\nlength: [string length $tcp_packet]"
     binary scan $tcp_packet SuSuIuIuh2b8IuIuIu source_port dest_port seq_num ack_num data_offset tcp_options window_size checksum urgent_ptr
 
     dict set tcp source_port $source_port
@@ -114,6 +142,7 @@ if {[lindex $link_type 0] != "DLT_EN10MB"} {
 }
 
 while {![eof $pcapChannel]} {
+    puts "new packet\n"
     set packet [pcap::getPacket $pcapChannel]
 
     set pcap_info [pcap_header_info [lindex $packet 0]]
@@ -121,18 +150,18 @@ while {![eof $pcapChannel]} {
     #set pcap_data [lindex $packet 1]
     incr i 1
     #puts "full data:[lindex $packet 1]"
-    set ether_header [string range [lindex $packet 1] 0 14]
+    set ether_header [string range [lindex $packet 1] 0 13]
     set ether_info [ether_header_info [lindex $packet 1]]
 
-    set ip_info [ip_header_info [string range [lindex $packet 1] 14 34]]
+    set ip_info [ip_header_info [string range [lindex $packet 1] 14 33]]
 
     if {[dict get $ip_info protocol] == "6"} {
         set tcp_packet [string range [lindex $packet 1] 34 end]
         set tcp_info [tcp_header_info $tcp_packet]
 
         set tcp_data [string range $tcp_packet [expr {"0x[dict get $tcp_info data_offset]" * 4}] end]
-        puts "src mac=[dict get $ether_info src] ip addr=[dict get $ip_info src] tcp port=[dict get $tcp_info source_port]"
-        puts "dest mac=[dict get $ether_info dest] ip addr=[dict get $ip_info dest] tcp port=[dict get $tcp_info dest_port]"
+        puts "src mac=[dict get $ether_info pretty_src] ip addr=[dict get $ip_info pretty_src] tcp port=[dict get $tcp_info source_port]"
+        puts "dest mac=[dict get $ether_info pretty_dest] ip addr=[dict get $ip_info pretty_dest] tcp port=[dict get $tcp_info dest_port]"
         puts "header lengths: ether=[dict get $ether_info len] ip=[dict get $ip_info len] len 0x[dict get $tcp_info data_offset] words ([expr {[dict get $tcp_info data_offset] * 4}] bytes)"
         puts "ip header: ver [dict get $ip_info version] tos [dict get $ip_info tos] id [dict get $ip_info id] flags [dict get $ip_info flags] fragment offset [dict get $ip_info fragment_offset] ttl [dict get $ip_info ttl] checksum [dict get $ip_info checksum]"
         puts "tcp header: seq #[dict get $tcp_info seq_num] ack #[dict get $tcp_info ack_num]  options [dict get $tcp_info options] ([dict get $tcp_info option_line]) window size [dict get $tcp_info window_size] checksum [dict get $tcp_info checksum] urgent ptr [dict get $tcp_info urgent_ptr]\n"
