@@ -31,8 +31,8 @@ proc ether_header_info {packet} {
 }
 
 proc tcp_header_info {tcp_packet} {
-    puts "packet: $tcp_packet\nlength: [string length $tcp_packet]"
-    binary scan $tcp_packet SuSuIuIuh2b8IuIuIu source_port dest_port seq_num ack_num data_offset tcp_options window_size checksum urgent_ptr
+    puts "tcp packet: $tcp_packet\nlength: [string length $tcp_packet]"
+    binary scan $tcp_packet SuSuIuIuB16SuSuSu source_port dest_port seq_num ack_num data_offset_tcp_options window_size checksum urgent_ptr
 
     dict set tcp source_port $source_port
     dict set tcp dest_port $dest_port
@@ -42,42 +42,46 @@ proc tcp_header_info {tcp_packet} {
     dict set tcp checksum $checksum
     dict set tcp urgent_ptr $urgent_ptr
 
+    set data_offset "0000"
+    append data_offset [string range $data_offset_tcp_options 0 3]
+    set data_offset [convert_bit_string $data_offset]
     # data_offset is length of tcp header, which can be between 20 and 60 bytes.
     #expressed in 32-bit words, so value is between 0x05 and 0x0e.  multiply by 4 to get number of bytes.
-    dict set tcp data_offset [expr {"0x$data_offset" * 4}]
+    dict set tcp data_offset [expr {"$data_offset" * 4}]
+    set tcp_options [string range $data_offset_tcp_options 8 end]; # bits 4,5,6,7 of combined field are reserved
 
     dict set tcp options $tcp_options
     set option_line ""
-    #the options were read LSB first (using h2 as scan format), so start with fin flag
-    dict set tcp opt fin [string index $tcp_options 0]
+    #the options were read MSB first so end with fin flag
+    dict set tcp opt fin [string index $tcp_options 7]
     if {[dict get $tcp opt fin] == "1"} {
         append option_line " FIN"
     }
-    dict set tcp opt syn [string index $tcp_options 1]
+    dict set tcp opt syn [string index $tcp_options 6]
     if {[dict get $tcp opt syn] == "1"} {
         append option_line " SYN"
     }
-    dict set tcp opt rst [string index $tcp_options 2]
+    dict set tcp opt rst [string index $tcp_options 5]
     if {[dict get $tcp opt rst] == "1"} {
         append option_line " RST"
     }
-    dict set tcp opt psh [string index $tcp_options 3]
+    dict set tcp opt psh [string index $tcp_options 4]
     if {[dict get $tcp opt psh] == "1"} {
         append option_line " PSH"
     }
-    dict set tcp opt ack [string index $tcp_options 4]
+    dict set tcp opt ack [string index $tcp_options 3]
     if {[dict get $tcp opt ack] == "1"} {
         append option_line " ACK"
     }
-    dict set tcp opt urg [string index $tcp_options 5]
+    dict set tcp opt urg [string index $tcp_options 2]
     if {[dict get $tcp opt urg] == "1"} {
         append option_line " URG"
     }
-    dict set tcp opt ece [string index $tcp_options 6]
+    dict set tcp opt ece [string index $tcp_options 1]
     if {[dict get $tcp opt ece] == "1"} {
         append option_line " ECE"
     }
-    dict set tcp opt cwr [string index $tcp_options 7]
+    dict set tcp opt cwr [string index $tcp_options 0]
     if {[dict get $tcp opt cwr] == "1"} {
         append option_line " CWR"
     }
@@ -133,6 +137,7 @@ proc ip_header_info {packet} {
     #TODO: separate flags out from fragment offset, both in B16 -> flags_off.
     dict set ip version $version
     dict set ip header_len $header_len
+    #TODO: extract tos fields
     dict set ip tos $tos
     dict set ip total_len $total_len
     dict set ip id $id
@@ -140,8 +145,7 @@ proc ip_header_info {packet} {
     #dict set ip fragment_offset $fragment_off
     dict set ip ttl $ttl
     dict set ip protocol $protocol
-    #dict set ip protocol "6"
-    dict set ip checksum $checksum
+    dict set ip checksum $checksum; # calculated over the IP header only
     #dict set ip src $src
     dict set ip pretty_src [pretty_ip $src]
     #dict set ip dest $dest
@@ -168,35 +172,46 @@ if {[lindex $link_type 0] != "DLT_EN10MB"} {
 }
 
 while {![eof $pcapChannel]} {
-    puts "new packet\n"
     set packet [pcap::getPacket $pcapChannel]
 
     set pcap_info [pcap_header_info [lindex $packet 0]]
 
-    #set pcap_data [lindex $packet 1]
     incr i 1
-    #puts "full data:[lindex $packet 1]"
+    puts "new packet $i: payload len is [string length $packet]\n"
     set ether_header [string range [lindex $packet 1] 0 13]
     set ether_info [ether_header_info [lindex $packet 1]]
 
-    set ip_info [ip_header_info [string range [lindex $packet 1] 14 33]]
+    set ip_info [ip_header_info [string range [lindex $packet 1] 14 end]]
+    set network_packet_offset [expr 14 + 4 * [dict get $ip_info header_len]]
+    set network_packet [string range [lindex $packet 1] $network_packet_offset end]
 
     if {[dict get $ip_info protocol] == "6"} {
-        set tcp_packet [string range [lindex $packet 1] 34 end]
-        set tcp_info [tcp_header_info $tcp_packet]
+        puts "TCP protocol"
+        set tcp_info [tcp_header_info $network_packet]
 
-        set tcp_data [string range $tcp_packet [expr {"0x[dict get $tcp_info data_offset]" * 4}] end]
+        set tcp_data [string range $network_packet [expr {"0x[dict get $tcp_info data_offset]" * 4}] end]
         puts "src mac=[dict get $ether_info pretty_src] ip addr=[dict get $ip_info pretty_src] tcp port=[dict get $tcp_info source_port]"
         puts "dest mac=[dict get $ether_info pretty_dest] ip addr=[dict get $ip_info pretty_dest] tcp port=[dict get $tcp_info dest_port]"
-        #puts "packet length [string length $packet] header lengths: ether=[dict get $ether_info len]"
-        puts "ip header len=[dict get $ip_info header_len] total=[dict get $ip_info total_len] bytes"
-        #puts "tcp len 0x[dict get $tcp_info data_offset] words ([expr {[dict get $tcp_info data_offset] * 4}] bytes)"
+        puts "packet length [string length $packet] header lengths: ether=[dict get $ether_info len]"
+        puts "ip header len=[dict get $ip_info header_len] words ([expr 4 * [dict get $ip_info header_len]] bytes) total=[dict get $ip_info total_len] bytes"
+        puts "tcp len 0x[dict get $tcp_info data_offset] words ([expr {[dict get $tcp_info data_offset] * 4}] bytes)"
         puts "ip header: ver [dict get $ip_info version] tos [dict get $ip_info tos] id [dict get $ip_info id]"; # flags [dict get $ip_info flags] fragment offset [dict get $ip_info fragment_offset]"
         puts "ttl [dict get $ip_info ttl] proto [dict get $ip_info protocol] checksum [dict get $ip_info checksum]"
-        #puts "tcp header: seq #[dict get $tcp_info seq_num] ack #[dict get $tcp_info ack_num]  options [dict get $tcp_info options] ([dict get $tcp_info option_line]) window size [dict get $tcp_info window_size] checksum [dict get $tcp_info checksum] urgent ptr [dict get $tcp_info urgent_ptr]\n"
+        puts "tcp header: seq #[dict get $tcp_info seq_num] ack #[dict get $tcp_info ack_num]  options [dict get $tcp_info options] ([dict get $tcp_info option_line]) window size [dict get $tcp_info window_size] checksum [dict get $tcp_info checksum] urgent ptr [dict get $tcp_info urgent_ptr]\n"
         #puts "tcp data: $tcp_data"
+    } elseif {[dict get $ip_info protocol] == "1"} {
+        puts "ICMP"
+        #binary scan ccSua* type code checksum message
+    } elseif {[dict get $ip_info protocol] == "2"} {
+        puts "IGMP"
+    } elseif {[dict get $ip_info protocol] == "17"} {
+        puts "UDP"
+    } elseif {[dict get $ip_info protocol] == "89"} {
+        puts "OSPF"
+    } elseif {[dict get $ip_info protocol] == "132"} {
+        puts "SCTP"
     } else {
-        puts "protocol not supported.  was [dict get $ip_info protocol], expected 6 (TCP)."
+        puts "ip protocol number [dict get $ip_info protocol] not supported."
     }
 }
 
