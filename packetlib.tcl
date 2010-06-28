@@ -165,7 +165,7 @@ proc ::packetlib::ip_header_info {packet} {
     return $ip
 }
 
-proc ::packetlib::get_packet {pcapChannel} {
+proc ::packetlib::get_packet {pcapChannel dev_info} {
     puts "get: chan $pcapChannel"
     if {[eof "$pcapChannel"]} {
         set global_eof 1

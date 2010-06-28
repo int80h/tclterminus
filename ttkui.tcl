@@ -22,4 +22,22 @@ proc create_ui {app_info} {
 	focus .c.filterentry
 }
 
+proc open_default_device {} {
+	set device [pcap::lookupdev]
+	set pcapChannel [pcap::pcap_open -nopromisc -filter "tcp" $device]
+	set datalink_type [pcap::datalink $pcapChannel]
+	if {[lindex $datalink_type 0] != "DLT_EN10MB"} {
+	    puts "incompatible link type.  Presently, only Ethernet is supported.\n"
+	    exit
+	}
+	set addrlist [pcap::lookupnet $device]
+	
+	dict set app_info device $device
+	dict set app_info datalink_type $datalink_type
+	dict set app_info pcapChannel $pcapChannel
+	dict set app_info addrlist $addrlist
+	
+	fconfigure $pcapChannel -blocking 0 -translation binary
+    return $app_info
+}
 
