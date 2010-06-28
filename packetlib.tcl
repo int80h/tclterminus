@@ -2,8 +2,9 @@
 #(C)2010 Charles Valentine
 package provide packetlib 0.1
 
+#TODO: packetlib should only export conversion and get_packet fns.  *_header_info should be internal, called by get_packet.
 namespace eval ::packetlib {
-    namespace export pcap_header_info ether_header_info tcp_header_info pretty_mac pretty_ip convert_bit_string ip_header_info 
+    namespace export pcap_header_info ether_header_info tcp_header_info pretty_mac pretty_ip convert_bit_string ip_header_info get_packet
 }
 
 lappend auto_path /usr/local/lib/tclpcap0.1
@@ -162,5 +163,43 @@ proc ::packetlib::ip_header_info {packet} {
     dict set ip pretty_dest [pretty_ip $dest]
 
     return $ip
+}
+
+proc ::packetlib::get_packet {pcapChannel} {
+    puts "get: chan $pcapChannel"
+    if {[eof "$pcapChannel"]} {
+        set global_eof 1
+        return
+    }
+    set packet [pcap::getPacket $pcapChannel]
+    if {[llength $packet] == 0} {
+        return
+    }
+    set pcap_info [packetlib::pcap_header_info [lindex $packet 0]]
+    incr i 1
+
+    #TODO: instead of hardcoding for ethernet, write proc to determine type
+    set ether_header [string range [lindex $packet 1] 0 13]
+    set ether_info [packetlib::ether_header_info [lindex $packet 1]]
+
+    #TODO: instead of hardcoding for ip, write proc to determine type
+    set ip_info [packetlib::ip_header_info [string range [lindex $packet 1] 14 end]]
+
+    set network_packet_offset [expr 14 + 4 * [dict get $ip_info header_len]]
+    set network_packet [string range [lindex $packet 1] $network_packet_offset end]
+
+    if {[dict get $ip_info protocol] == "6"} {
+        set tcp_info [packetlib::tcp_header_info $network_packet]
+        set tcp_data [string range $network_packet [expr {"0x[dict get $tcp_info data_offset]" * 4}] end]
+    }
+        #puts "src mac=[dict get $ether_info pretty_src] ip addr=[dict get $ip_info pretty_src] tcp port=[dict get $tcp_info source_port]"
+        #puts "dest mac=[dict get $ether_info pretty_dest] ip addr=[dict get $ip_info pretty_dest] tcp port=[dict get $tcp_info dest_port]"
+        #puts "packet length [string length $packet] header lengths: ether=[dict get $ether_info len]"
+        #puts "ip header len=[dict get $ip_info header_len] words ([expr 4 * [dict get $ip_info header_len]] bytes) total=[dict get $ip_info total_len] bytes"
+        #puts "tcp len 0x[dict get $tcp_info data_offset] words ([expr {[dict get $tcp_info data_offset] * 4}] bytes)"
+        #puts "ip header: ver [dict get $ip_info version] tos [dict get $ip_info tos] id [dict get $ip_info id]"; # flags [dict get $ip_info flags] fragment offset [dict get $ip_info fragment_offset]"
+        puts "ttl [dict get $ip_info ttl] proto [dict get $ip_info protocol] checksum [dict get $ip_info checksum]"
+        puts "tcp header: seq #[dict get $tcp_info seq_num] ack #[dict get $tcp_info ack_num]  options [dict get $tcp_info options] ([dict get $tcp_info option_line]) window size [dict get $tcp_info window_size] checksum [dict get $tcp_info checksum] urgent ptr [dict get $tcp_info urgent_ptr]\n"
+    #TODO: assemble _info parts into struct/object and add elaborated packet to app-level tree of packets
 }
 
