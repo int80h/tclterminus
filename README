@@ -1,1 +1,5 @@
 At its onset, the direction of development is towards creating an application that displays traffic to and from a network interface and builds an interactive view of the network history.
+
+packages required: tcl8.5 tklib libpcap-dev
+
+source install: tclpcap 0.1

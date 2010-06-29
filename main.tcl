@@ -1,5 +1,5 @@
 #!/usr/bin/wish8.5
-#(C)2010 Charles Valentine
+#(C)2010 Charles Valentine <lantern_dev@yahoo.com>
 
 lappend auto_path /usr/local/lib/tclpcap0.1
 lappend auto_path [pwd]
