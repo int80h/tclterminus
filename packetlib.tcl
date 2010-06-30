@@ -4,11 +4,19 @@ package provide packetlib 0.1
 
 #TODO: packetlib should only export conversion and get_packet fns.  *_header_info should be internal, called by get_packet.
 namespace eval ::packetlib {
-    namespace export pcap_header_info ether_header_info tcp_header_info pretty_mac pretty_ip convert_bit_string ip_header_info get_packet
+    namespace export pcap_header_info ether_header_info tcp_header_info pretty_mac pretty_ip convert_bit_string ip_header_info get_packet every
 }
 
 lappend auto_path /usr/local/lib/tclpcap0.1
 package require Pcap
+
+#from http://wiki.tcl.tk/9299
+proc ::packetlib::time_every {} {
+    global local_time
+
+    set local_time [clock format [clock seconds]]
+    after 1000 [info level 0]
+}
 
 proc ::packetlib::pcap_header_info {pcap_header} {
     scan $pcap_header "%s %s %s" timestamp caplen len
@@ -22,16 +30,6 @@ proc ::packetlib::pcap_header_info {pcap_header} {
     dict set info caplen $caplen
     dict set info len $len
     return $info
-}
-
-proc ::packetlib::ether_header_info {packet} {
-    binary scan $packet H12H12Su src dest len
-    dict set ether src $src
-    dict set ether pretty_src [pretty_mac $src]
-    dict set ether dest $dest
-    dict set ether pretty_dest [pretty_mac $dest]
-    dict set ether len $len
-    return $ether
 }
 
 proc ::packetlib::tcp_header_info {tcp_packet} {
@@ -165,23 +163,47 @@ proc ::packetlib::ip_header_info {packet} {
     return $ip
 }
 
-proc ::packetlib::get_packet {pcapChannel dev_info} {
+proc ::packetlib::scan_ether_header {packet} {
+    dict set link_h type ETH
+    #dict set link_h header [string range [lindex $packet 1] 0 13]
+    binary scan $packet H12H12Su src dest len
+    dict set link_h src $src
+    dict set link_h pretty_src [pretty_mac $src]
+    dict set link_h dest $dest
+    dict set link_h pretty_dest [pretty_mac $dest]
+    dict set link_h len $len
+    return $link_h
+}
+
+proc ::packetlib::type_link_header {packet device_type} {
+    if {$device_type == "DLT_EN10MB Ethernet"} {
+        return [scan_ether_header $packet]
+    } else {
+        puts "$device_type is an unimplemented device/link type."
+        exit
+    }
+
+}
+
+proc ::packetlib::get_packet {pcapChannel device_type} {
+    # returns packet_id, 0 length, or -1 eof
     puts "get: chan $pcapChannel"
     if {[eof "$pcapChannel"]} {
         set global_eof 1
-        return
+        return -1
     }
     set packet [pcap::getPacket $pcapChannel]
     if {[llength $packet] == 0} {
-        return
+        return 0
     }
+
+    set packet_id 37
+    #TODO: feed raw packet in to procs and put the results in a struct.
+    # add the struct as an object into a data structure of packets
     set pcap_info [packetlib::pcap_header_info [lindex $packet 0]]
     incr i 1
 
-    #TODO: instead of hardcoding for ethernet, write proc to determine type
-    set ether_header [string range [lindex $packet 1] 0 13]
-    set ether_info [packetlib::ether_header_info [lindex $packet 1]]
-
+    set link_h [type_link_header $packet $device_type]
     #TODO: instead of hardcoding for ip, write proc to determine type
     set ip_info [packetlib::ip_header_info [string range [lindex $packet 1] 14 end]]
 
@@ -192,14 +214,15 @@ proc ::packetlib::get_packet {pcapChannel dev_info} {
         set tcp_info [packetlib::tcp_header_info $network_packet]
         set tcp_data [string range $network_packet [expr {"0x[dict get $tcp_info data_offset]" * 4}] end]
     }
-        #puts "src mac=[dict get $ether_info pretty_src] ip addr=[dict get $ip_info pretty_src] tcp port=[dict get $tcp_info source_port]"
-        #puts "dest mac=[dict get $ether_info pretty_dest] ip addr=[dict get $ip_info pretty_dest] tcp port=[dict get $tcp_info dest_port]"
-        #puts "packet length [string length $packet] header lengths: ether=[dict get $ether_info len]"
-        #puts "ip header len=[dict get $ip_info header_len] words ([expr 4 * [dict get $ip_info header_len]] bytes) total=[dict get $ip_info total_len] bytes"
-        #puts "tcp len 0x[dict get $tcp_info data_offset] words ([expr {[dict get $tcp_info data_offset] * 4}] bytes)"
-        #puts "ip header: ver [dict get $ip_info version] tos [dict get $ip_info tos] id [dict get $ip_info id]"; # flags [dict get $ip_info flags] fragment offset [dict get $ip_info fragment_offset]"
+        puts "src mac=[dict get $link_h pretty_src] ip addr=[dict get $ip_info pretty_src] tcp port=[dict get $tcp_info source_port]"
+        puts "dest mac=[dict get $link_h pretty_dest] ip addr=[dict get $ip_info pretty_dest] tcp port=[dict get $tcp_info dest_port]"
+        puts "packet length [string length $packet] header lengths: ether=[dict get $link_h len]"
+        puts "ip header len=[dict get $ip_info header_len] words ([expr 4 * [dict get $ip_info header_len]] bytes) total=[dict get $ip_info total_len] bytes"
+        puts "tcp len 0x[dict get $tcp_info data_offset] words ([expr {[dict get $tcp_info data_offset] * 4}] bytes)"
+        puts "ip header: ver [dict get $ip_info version] tos [dict get $ip_info tos] id [dict get $ip_info id]"; # flags [dict get $ip_info flags] fragment offset [dict get $ip_info fragment_offset]"
         puts "ttl [dict get $ip_info ttl] proto [dict get $ip_info protocol] checksum [dict get $ip_info checksum]"
         puts "tcp header: seq #[dict get $tcp_info seq_num] ack #[dict get $tcp_info ack_num]  options [dict get $tcp_info options] ([dict get $tcp_info option_line]) window size [dict get $tcp_info window_size] checksum [dict get $tcp_info checksum] urgent ptr [dict get $tcp_info urgent_ptr]\n"
     #TODO: assemble _info parts into struct/object and add elaborated packet to app-level tree of packets
+    return $packet_id
 }
 

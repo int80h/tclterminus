@@ -10,7 +10,14 @@ package require Tk
 
 source ttkui.tcl
 
+set local_time [clock format [clock seconds]]
+packetlib::time_every 
+set pkt_t_delta 0
+set sent_count 0
+set recv_count 0
+
 set app_info [open_default_device]
+dict set $app_info realtime_display 1
 set pcapChannel [dict get $app_info pcapChannel]
 
 fileevent $pcapChannel readable [list packetlib::get_packet $pcapChannel [dict get $app_info datalink_type]]
