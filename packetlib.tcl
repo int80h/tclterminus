@@ -32,7 +32,7 @@ proc ::packetlib::pcap_header_info {pcap_header} {
     return $info
 }
 
-proc ::packetlib::tcp_header_info {tcp_packet} {
+proc ::packetlib::scan_tcp_header {tcp_packet} {
     puts "tcp packet: $tcp_packet\nlength: [string length $tcp_packet]"
     binary scan $tcp_packet SuSuIuIuB16SuSuSu source_port dest_port seq_num ack_num data_offset_tcp_options window_size checksum urgent_ptr
 
@@ -126,7 +126,7 @@ proc ::packetlib::convert_bit_string {str} {
     return $val
 }
 
-proc ::packetlib::ip_header_info {packet} {
+proc ::packetlib::scan_ip_header {packet} {
     puts "packet length is [string length $packet]"
     #binary scan $packet ccSuSuB3B11ccSuc4c4 vhl tos total_len id flags fragment_off ttl protocol checksum src dest
     binary scan $packet B8cSuSuB16ccSuc4c4 vhl tos total_len id flags_off ttl protocol checksum src dest
@@ -164,14 +164,18 @@ proc ::packetlib::ip_header_info {packet} {
 }
 
 proc ::packetlib::scan_ether_header {packet} {
-    dict set link_h type ETH
     #dict set link_h header [string range [lindex $packet 1] 0 13]
     binary scan $packet H12H12Su src dest len
     dict set link_h src $src
     dict set link_h pretty_src [pretty_mac $src]
     dict set link_h dest $dest
     dict set link_h pretty_dest [pretty_mac $dest]
+    # len also seems to serve as type
     dict set link_h len $len
+
+    # type and header_len will be standard for link_h types.  header_len should be in bytes.
+    dict set link_h type ETH
+    dict set link_h header_len $len
     return $link_h
 }
 
@@ -182,7 +186,19 @@ proc ::packetlib::type_link_header {packet device_type} {
         puts "$device_type is an unimplemented device/link type."
         exit
     }
+}
 
+proc ::packetlib::type_trans_header {packet} {
+    return [scan_ip_header $packet]
+}
+
+proc ::packetlib::type_net_header {packet protocol} {
+    if {$protocol == 6} {
+        return [scan_tcp_header $packet]
+    } else {
+        puts "$protocol is an unimplemented network protocol type."
+        exit
+    }
 }
 
 proc ::packetlib::get_packet {pcapChannel device_type} {
@@ -203,25 +219,24 @@ proc ::packetlib::get_packet {pcapChannel device_type} {
     set pcap_info [packetlib::pcap_header_info [lindex $packet 0]]
     incr i 1
 
+    #TODO: after link_h.header_len is converted to bytes, should strip that # of bytes from work copy of packet
     set link_h [type_link_header $packet $device_type]
-    #TODO: instead of hardcoding for ip, write proc to determine type
-    set ip_info [packetlib::ip_header_info [string range [lindex $packet 1] 14 end]]
 
-    set network_packet_offset [expr 14 + 4 * [dict get $ip_info header_len]]
+    set trans_h [type_trans_header [string range [lindex $packet 1] 14 end]]
+
+    set network_packet_offset [expr 14 + 4 * [dict get $trans_h header_len]]
     set network_packet [string range [lindex $packet 1] $network_packet_offset end]
 
-    if {[dict get $ip_info protocol] == "6"} {
-        set tcp_info [packetlib::tcp_header_info $network_packet]
-        set tcp_data [string range $network_packet [expr {"0x[dict get $tcp_info data_offset]" * 4}] end]
-    }
-        puts "src mac=[dict get $link_h pretty_src] ip addr=[dict get $ip_info pretty_src] tcp port=[dict get $tcp_info source_port]"
-        puts "dest mac=[dict get $link_h pretty_dest] ip addr=[dict get $ip_info pretty_dest] tcp port=[dict get $tcp_info dest_port]"
-        puts "packet length [string length $packet] header lengths: ether=[dict get $link_h len]"
-        puts "ip header len=[dict get $ip_info header_len] words ([expr 4 * [dict get $ip_info header_len]] bytes) total=[dict get $ip_info total_len] bytes"
-        puts "tcp len 0x[dict get $tcp_info data_offset] words ([expr {[dict get $tcp_info data_offset] * 4}] bytes)"
-        puts "ip header: ver [dict get $ip_info version] tos [dict get $ip_info tos] id [dict get $ip_info id]"; # flags [dict get $ip_info flags] fragment offset [dict get $ip_info fragment_offset]"
-        puts "ttl [dict get $ip_info ttl] proto [dict get $ip_info protocol] checksum [dict get $ip_info checksum]"
-        puts "tcp header: seq #[dict get $tcp_info seq_num] ack #[dict get $tcp_info ack_num]  options [dict get $tcp_info options] ([dict get $tcp_info option_line]) window size [dict get $tcp_info window_size] checksum [dict get $tcp_info checksum] urgent ptr [dict get $tcp_info urgent_ptr]\n"
+    set net_h [type_net_header [string range [lindex $packet 1] 14 end] [dict get $trans_h protocol]]
+    set tcp_data [string range $network_packet [expr {"0x[dict get $net_h data_offset]" * 4}] end]
+    puts "src mac=[dict get $link_h pretty_src] ip addr=[dict get $trans_h pretty_src] tcp port=[dict get $net_h source_port]"
+    puts "dest mac=[dict get $link_h pretty_dest] ip addr=[dict get $trans_h pretty_dest] tcp port=[dict get $net_h dest_port]"
+    puts "packet length [string length $packet] header lengths: ether=[dict get $link_h len]"
+    puts "ip header len=[dict get $trans_h header_len] words ([expr 4 * [dict get $trans_h header_len]] bytes) total=[dict get $trans_h total_len] bytes"
+    puts "tcp len 0x[dict get $net_h data_offset] words ([expr {[dict get $net_h data_offset] * 4}] bytes)"
+    puts "ip header: ver [dict get $trans_h version] tos [dict get $trans_h tos] id [dict get $trans_h id]"; # flags [dict get $trans_h flags] fragment offset [dict get $trans_h fragment_offset]"
+    puts "ttl [dict get $trans_h ttl] proto [dict get $trans_h protocol] checksum [dict get $trans_h checksum]"
+    puts "tcp header: seq #[dict get $net_h seq_num] ack #[dict get $net_h ack_num]  options [dict get $net_h options] ([dict get $net_h option_line]) window size [dict get $net_h window_size] checksum [dict get $net_h checksum] urgent ptr [dict get $net_h urgent_ptr]\n"
     #TODO: assemble _info parts into struct/object and add elaborated packet to app-level tree of packets
     return $packet_id
 }
