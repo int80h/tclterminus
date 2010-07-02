@@ -10,6 +10,7 @@ namespace eval ::packetlib {
 lappend auto_path /usr/local/lib/tclpcap0.1
 package require Pcap
 
+
 #from http://wiki.tcl.tk/9299
 proc ::packetlib::time_every {} {
     global local_time
@@ -148,8 +149,8 @@ proc ::packetlib::scan_ip_header {packet} {
     dict set ip id $id
 
     #TODO: separate flags out from fragment offset, both in B16 -> flags_off.
-    #dict set ip flags $flags
-    #dict set ip fragment_offset $fragment_off
+    dict set ip flags $flags_off
+    dict set ip fragment_offset $flags_off
 
     dict set ip ttl $ttl
     dict set ip protocol $protocol
@@ -159,6 +160,7 @@ proc ::packetlib::scan_ip_header {packet} {
     dict set ip pretty_src [pretty_ip $src]
     dict set ip dest $dest
     dict set ip pretty_dest [pretty_ip $dest]
+    dict set ip display update_ipv4_display
 
     return $ip
 }
@@ -174,8 +176,10 @@ proc ::packetlib::scan_ether_header {packet} {
     dict set link_h len $len
 
     # type and header_len will be standard for link_h types.  header_len should be in bytes.
-    dict set link_h type ETH
     dict set link_h header_len $len
+    
+    # set to name of proc that will update ether display fields
+    dict set link_h display update_ether_display
     return $link_h
 }
 
@@ -202,42 +206,60 @@ proc ::packetlib::type_net_header {packet protocol} {
 }
 
 proc ::packetlib::get_packet {pcapChannel device_type} {
+    global unfiltered
     # returns packet_id, 0 length, or -1 eof
     puts "get: chan $pcapChannel"
     if {[eof "$pcapChannel"]} {
         set global_eof 1
         return -1
     }
-    set packet [pcap::getPacket $pcapChannel]
-    if {[llength $packet] == 0} {
+    set pcap_packet [pcap::getPacket $pcapChannel]
+    if {[llength $pcap_packet] == 0} {
         return 0
     }
 
-    set packet_id 37
-    #TODO: feed raw packet in to procs and put the results in a struct.
-    # add the struct as an object into a data structure of packets
-    set pcap_info [packetlib::pcap_header_info [lindex $packet 0]]
+    dict set packet raw $pcap_packet 
+
+    set pcap_info [packetlib::pcap_header_info [lindex $pcap_packet 0]]
+    dict set packet pcap $pcap_info
     incr i 1
 
     #TODO: after link_h.header_len is converted to bytes, should strip that # of bytes from work copy of packet
-    set link_h [type_link_header $packet $device_type]
+    set link_h [type_link_header $pcap_packet $device_type]
+    dict set packet link $link_h
 
-    set trans_h [type_trans_header [string range [lindex $packet 1] 14 end]]
+    set trans_h [type_trans_header [string range [lindex $pcap_packet 1] 14 end]]
+    dict set packet trans $trans_h
 
     set network_packet_offset [expr 14 + 4 * [dict get $trans_h header_len]]
-    set network_packet [string range [lindex $packet 1] $network_packet_offset end]
+    set network_packet [string range [lindex $pcap_packet 1] $network_packet_offset end]
+    set net_h [type_net_header [string range [lindex $pcap_packet 1] 14 end] [dict get $trans_h protocol]]
+    dict set packet net $net_h
 
-    set net_h [type_net_header [string range [lindex $packet 1] 14 end] [dict get $trans_h protocol]]
-    set tcp_data [string range $network_packet [expr {"0x[dict get $net_h data_offset]" * 4}] end]
-    puts "src mac=[dict get $link_h pretty_src] ip addr=[dict get $trans_h pretty_src] tcp port=[dict get $net_h source_port]"
-    puts "dest mac=[dict get $link_h pretty_dest] ip addr=[dict get $trans_h pretty_dest] tcp port=[dict get $net_h dest_port]"
-    puts "packet length [string length $packet] header lengths: ether=[dict get $link_h len]"
-    puts "ip header len=[dict get $trans_h header_len] words ([expr 4 * [dict get $trans_h header_len]] bytes) total=[dict get $trans_h total_len] bytes"
-    puts "tcp len 0x[dict get $net_h data_offset] words ([expr {[dict get $net_h data_offset] * 4}] bytes)"
-    puts "ip header: ver [dict get $trans_h version] tos [dict get $trans_h tos] id [dict get $trans_h id]"; # flags [dict get $trans_h flags] fragment offset [dict get $trans_h fragment_offset]"
-    puts "ttl [dict get $trans_h ttl] proto [dict get $trans_h protocol] checksum [dict get $trans_h checksum]"
-    puts "tcp header: seq #[dict get $net_h seq_num] ack #[dict get $net_h ack_num]  options [dict get $net_h options] ([dict get $net_h option_line]) window size [dict get $net_h window_size] checksum [dict get $net_h checksum] urgent ptr [dict get $net_h urgent_ptr]\n"
-    #TODO: assemble _info parts into struct/object and add elaborated packet to app-level tree of packets
-    return $packet_id
+    set data [string range $network_packet [expr {"0x[dict get $net_h data_offset]" * 4}] end]
+    dict set packet data $data
+
+    #puts "src mac=[dict get $link_h pretty_src] ip addr=[dict get $trans_h pretty_src] tcp port=[dict get $net_h source_port]"
+    #puts "dest mac=[dict get $link_h pretty_dest] ip addr=[dict get $trans_h pretty_dest] tcp port=[dict get $net_h dest_port]"
+    #puts "packet length [string length $pcap_packet] header lengths: ether=[dict get $link_h len]"
+    #puts "ip header len=[dict get $trans_h header_len] words ([expr 4 * [dict get $trans_h header_len]] bytes) total=[dict get $trans_h total_len] bytes"
+    #puts "tcp len 0x[dict get $net_h data_offset] words ([expr {[dict get $net_h data_offset] * 4}] bytes)"
+    #puts "ip header: ver [dict get $trans_h version] tos [dict get $trans_h tos] id [dict get $trans_h id]"; # flags [dict get $trans_h flags] fragment offset [dict get $trans_h fragment_offset]"
+    #puts "ttl [dict get $trans_h ttl] proto [dict get $trans_h protocol] checksum [dict get $trans_h checksum]"
+    #puts "tcp header: seq #[dict get $net_h seq_num] ack #[dict get $net_h ack_num]  options [dict get $net_h options] ([dict get $net_h option_line]) window size [dict get $net_h window_size] checksum [dict get $net_h checksum] urgent ptr [dict get $net_h urgent_ptr]\n"
+
+    dict set packet packet_id 37
+    dict set packet len [string length [dict get $packet raw]]
+    set packet_id [dict get $packet packet_id]
+    puts "id [dict get $packet packet_id]"
+    puts "full: [dict get $packet link]"
+    dict set unfiltered $packet_id $packet
+    process_packet $packet_id
 }
 
+proc ::packetlib::process_packet {packet_id} {
+    global app_info
+
+    [dict get $app_info update_proc] $packet_id
+
+}

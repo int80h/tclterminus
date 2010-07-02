@@ -27,7 +27,7 @@ proc open_default_device {} {
 	dict set app_info netmask $netmask
 	dict set app_info promisc_string $promisc_string
 	
-	fconfigure $pcapChannel -blocking 0 -translation binary
+	chan configure $pcapChannel -blocking 0 -translation binary
     return $app_info
 }
 

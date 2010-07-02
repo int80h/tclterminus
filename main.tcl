@@ -16,10 +16,13 @@ set pkt_t_delta 0
 set sent_count 0
 set recv_count 0
 
+
+dict set unfiltered 0 null
 set app_info [open_default_device]
-dict set $app_info realtime_display 1
+dict set app_info realtime_display 1
+dict set app_info update_proc update_display
 set pcapChannel [dict get $app_info pcapChannel]
 
 fileevent $pcapChannel readable [list packetlib::get_packet $pcapChannel [dict get $app_info datalink_type]]
-create_ui $app_info
+create_ui
 
