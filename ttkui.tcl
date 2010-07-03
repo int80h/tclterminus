@@ -14,9 +14,21 @@ proc update_display packet_id {
 
     update_header_w $packet $packet_w link
     update_header_w $packet $packet_w trans
-    #update_trans_w $packet $packet_w
-    #update_net_w $packet $packet_w
+    update_header_w $packet $packet_w net
     puts "updating display"
+}
+
+proc update_tcp_display {packet container} {
+    puts "update tcp container $container"
+    ${container}.src configure -text "SRC [dict get $packet net source_port]"
+    ${container}.dest configure -text "DEST [dict get $packet net dest_port]"
+    ${container}.seq_num configure -text "SEQ [dict get $packet net seq_num]"
+    ${container}.ack_num configure -text "ACK [dict get $packet net ack_num]"
+    ${container}.data_offset configure -text "OFF [dict get $packet net data_offset]"
+    ${container}.options configure -text "OPT [dict get $packet net option_line]"
+    ${container}.window_size configure -text "WIN  [dict get $packet net window_size]"
+    ${container}.checksum configure -text "CHK  [dict get $packet net checksum]"
+    ${container}.urgent_ptr configure -text "URG [dict get $packet net urgent_ptr]"
 }
 
 proc update_ipv4_display {packet container} {
@@ -44,18 +56,13 @@ proc update_ether_display {packet container} {
 
 proc update_header_w {packet packet_w type} {
     set display [dict get $packet $type display]
-    puts " cmd: $display $packet ${packet_w}.headers.${type}_w"
+    #puts " cmd: $display $packet ${packet_w}.headers.${type}_w"
     $display $packet ${packet_w}.headers.${type}_w
     #exit
 }
 
-proc update_link_w {packet packet_w} {
-    set display [dict get $packet link display]
-    $display $packet ${packet_w}.headers.link_w
-}
-
 proc create_tcp_view {parent} {
-    set net_w ${parent}.network_w
+    set net_w ${parent}.net_w
     grid [ttk::labelframe $net_w -text "Network Header (TCP)" -padding "2 2 6 6"] -column 0 -row 0 -sticky nwes
 
     grid [ttk::label ${net_w}.src -text "0"] -column 0 -row 1 -sticky we

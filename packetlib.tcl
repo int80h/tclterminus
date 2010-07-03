@@ -89,6 +89,7 @@ proc ::packetlib::scan_tcp_header {tcp_packet} {
         append option_line " CWR"
     }
     dict set tcp option_line $option_line
+    dict set tcp display update_tcp_display
 
     return $tcp
 }
