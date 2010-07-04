@@ -11,7 +11,15 @@ lappend auto_path /usr/local/lib/tclpcap0.1
 package require Pcap
 
 
-#from http://wiki.tcl.tk/9299
+# based on http://wiki.tcl.tk/1599
+proc ::packetlib::dump_bytes {packet} {
+    binary scan $packet h*@0a* hex ascii
+    regsub -all -- {[^[:graph:] ]} $ascii {.} ascii
+    puts "hex dump: $hex"
+    puts "ascii dump: $ascii"
+}
+
+#based on http://wiki.tcl.tk/9299
 proc ::packetlib::time_every {} {
     global local_time
 
@@ -24,7 +32,7 @@ proc ::packetlib::pcap_header_info {pcap_header} {
     if {$caplen != $len} {
         puts "partial pcap packet: timestamp $timestamp caplen $caplen len $len\n"
     } else {
-        puts "timestamp: $timestamp length=$len\n"
+        puts "pcap timestamp: $timestamp length=$len\n"
     }
 
     dict set info timestamp $timestamp
@@ -225,12 +233,15 @@ proc ::packetlib::get_packet {pcapChannel device_type} {
     dict set packet pcap $pcap_info
     incr i 1
 
-    #TODO: after link_h.header_len is converted to bytes, should strip that # of bytes from work copy of packet
-    set link_h [type_link_header $pcap_packet $device_type]
+    dump_bytes [lindex $pcap_packet 1]
+
+    set link_h [type_link_header [lindex $pcap_packet 1] $device_type]
     dict set packet link $link_h
+    #TODO: check that type field should be 0x0800 for IP protocol
 
     set trans_h [type_trans_header [string range [lindex $pcap_packet 1] 14 end]]
     dict set packet trans $trans_h
+    #TODO: ip header looks ok, have to check flags and fragment offset when they get parsed
 
     set network_packet_offset [expr 14 + 4 * [dict get $trans_h header_len]]
     set network_packet [string range [lindex $pcap_packet 1] $network_packet_offset end]
@@ -240,14 +251,14 @@ proc ::packetlib::get_packet {pcapChannel device_type} {
     set data [string range $network_packet [expr {"0x[dict get $net_h data_offset]" * 4}] end]
     dict set packet data $data
 
-    #puts "src mac=[dict get $link_h pretty_src] ip addr=[dict get $trans_h pretty_src] tcp port=[dict get $net_h source_port]"
-    #puts "dest mac=[dict get $link_h pretty_dest] ip addr=[dict get $trans_h pretty_dest] tcp port=[dict get $net_h dest_port]"
-    #puts "packet length [string length $pcap_packet] header lengths: ether=[dict get $link_h len]"
-    #puts "ip header len=[dict get $trans_h header_len] words ([expr 4 * [dict get $trans_h header_len]] bytes) total=[dict get $trans_h total_len] bytes"
-    #puts "tcp len 0x[dict get $net_h data_offset] words ([expr {[dict get $net_h data_offset] * 4}] bytes)"
-    #puts "ip header: ver [dict get $trans_h version] tos [dict get $trans_h tos] id [dict get $trans_h id]"; # flags [dict get $trans_h flags] fragment offset [dict get $trans_h fragment_offset]"
-    #puts "ttl [dict get $trans_h ttl] proto [dict get $trans_h protocol] checksum [dict get $trans_h checksum]"
-    #puts "tcp header: seq #[dict get $net_h seq_num] ack #[dict get $net_h ack_num]  options [dict get $net_h options] ([dict get $net_h option_line]) window size [dict get $net_h window_size] checksum [dict get $net_h checksum] urgent ptr [dict get $net_h urgent_ptr]\n"
+    puts "src mac=[dict get $link_h pretty_src] ip addr=[dict get $trans_h pretty_src] tcp port=[dict get $net_h source_port]"
+    puts "dest mac=[dict get $link_h pretty_dest] ip addr=[dict get $trans_h pretty_dest] tcp port=[dict get $net_h dest_port]"
+    puts "packet length [string length $pcap_packet] header lengths: ether=[dict get $link_h len]"
+    puts "ip header len=[dict get $trans_h header_len] words ([expr 4 * [dict get $trans_h header_len]] bytes) total=[dict get $trans_h total_len] bytes"
+    puts "tcp len 0x[dict get $net_h data_offset] words ([expr {[dict get $net_h data_offset] * 4}] bytes)"
+    puts "ip header: ver [dict get $trans_h version] tos [dict get $trans_h tos] id [dict get $trans_h id]"; # flags [dict get $trans_h flags] fragment offset [dict get $trans_h fragment_offset]"
+    puts "ttl [dict get $trans_h ttl] proto [dict get $trans_h protocol] checksum [dict get $trans_h checksum]"
+    puts "tcp header: seq #[dict get $net_h seq_num] ack #[dict get $net_h ack_num]  options [dict get $net_h options] ([dict get $net_h option_line]) window size [dict get $net_h window_size] checksum [dict get $net_h checksum] urgent ptr [dict get $net_h urgent_ptr]\n"
 
     dict set packet packet_id 37
     dict set packet len [string length [dict get $packet raw]]
