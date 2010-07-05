@@ -41,9 +41,9 @@ proc open_pcap_file {filename} {
 	    puts "incompatible link type.  Presently, only Ethernet is supported.\n"
 	    exit
 	}
-	set addrlist [pcap::lookupnet $device]
-    set addr [lindex $addrlist 0]
-    set netmask [lindex $addrlist 1]
+	set addrlist NULL
+    set addr NULL
+    set netmask FILE
     set mac_addr "Not Acquired"
 	
     dict set app_info host [info hostname]

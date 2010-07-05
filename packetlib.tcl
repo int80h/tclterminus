@@ -219,7 +219,8 @@ proc ::packetlib::get_packet {pcapChannel device_type} {
     # returns packet_id, 0 length, or -1 eof
     puts "get: chan $pcapChannel"
     if {[eof "$pcapChannel"]} {
-        set global_eof 1
+        fileevent $pcapChannel readable {}
+        close $pcapChannel
         return -1
     }
     set pcap_packet [pcap::getPacket $pcapChannel]

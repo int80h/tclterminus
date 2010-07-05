@@ -20,7 +20,7 @@ set optlist {
     {i.arg  "read pcap file"}
 }
 
-puts "argv: $argv"
+#puts "argv: $argv"
 array set opts [cmdline::getoptions argv $optlist]
 #puts "opts: $opts"
 if { $opts(h) } {
@@ -31,12 +31,13 @@ if { $opts(h) } {
     exit
 } elseif { $opts(i) != "" } {
     set filename $opts(i)
-    puts "got -i, filename is $filename"
+    #puts "got -i, filename is $filename"
 }
 
 if {$filename == ""} {
     set app_info [open_default_device]
 } else {
+    puts "got filename $filename, opening pcap file"
     set app_info [open_pcap_file $filename]
 }
 
