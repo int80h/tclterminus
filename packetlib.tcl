@@ -245,8 +245,10 @@ proc ::packetlib::get_packet {pcapChannel device_type} {
     #TODO: ip header looks ok, have to check flags and fragment offset when they get parsed
 
     set network_packet_offset [expr 14 + 4 * [dict get $trans_h header_len]]
+    puts "net off: $network_packet_offset"
     set network_packet [string range [lindex $pcap_packet 1] $network_packet_offset end]
-    set net_h [type_net_header [string range [lindex $pcap_packet 1] 14 end] [dict get $trans_h protocol]]
+    puts "network packet: [dump_bytes $network_packet]"
+    set net_h [type_net_header [string range [lindex $pcap_packet 1] $network_packet_offset end] [dict get $trans_h protocol]]
     dict set packet net $net_h
 
     set data [string range $network_packet [expr {"0x[dict get $net_h data_offset]" * 4}] end]
